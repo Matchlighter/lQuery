@@ -169,7 +169,7 @@ local selectors = {
 	end;
 	["%["..ws.."*("..nf..")"..ws.."*(!?)"..ws.."*%]"] = function(obj, fld, opp) --Property not nil/nil
 		if opp=="!" then return obj[fld]==nil end
-		return obj[fld] != nil
+		return obj[fld] ~= nil
 	end;
 	["%*"] = function() return true;
 }
@@ -235,7 +235,7 @@ lib.selectorMatch = function (sel, obj)
 end
 
 local function execSelector(sel, par)
-	par = par || game
+	par = par or game
 	local tree = recurChilds(par)
 	local matches = {}
 	for i,v in ipairs(tree) do
