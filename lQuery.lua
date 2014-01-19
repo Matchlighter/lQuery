@@ -1,36 +1,35 @@
 local lib = {}
 _G.l = lib;
 
-local cls = {}
---setmetatable(cls, {})
-function cls:set(p, v)
+local QuerySet = {}
+function QuerySet:set(p, v)
 	for x,i in ipairs(self._items) do
 		pcall(function() i[p]=v end)
 	end
 end;
-function cls:get(p)
+function QuerySet:get(p)
 	for x,i in ipairs(self._items) do
 		local w,v = pcall(function() return i[p] end)
 		if w then return v end
 	end
 	return nil
 end;
-function cls:each(f)
+function QuerySet:each(f)
 	for x,i in ipairs(self._items) do
 		f(i, x)
 	end
 end;
-function cls:add(el)
+function QuerySet:add(el)
 	table.insert(self._items, el)
 end;
-function cls:__add(oth)1
+function QuerySet:__add(oth)
 	for i,v in ipairs(oth) do
 		table.insert(self._items, v)
 	end
 end;
 
 --Traversing
-	function cls:children(sel) --Get the children of each element in the set of matched elements, optionally filtered by a selector.
+	function QuerySet:children(sel) --Get the children of each element in the set of matched elements, optionally filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
 			for i,c in ipairs(inst:GetChildren()) do
@@ -41,14 +40,14 @@ end;
 		end)
 		return lib(nq)
 	end;
-	function cls:find(sel) --Get the descendants of each element in the current set of matched elements, filtered by a selector.
+	function QuerySet:find(sel) --Get the descendants of each element in the current set of matched elements, filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
 			mergeTable(nq, execSelector(sel, inst))
 		end)
 		return lib(nq)
 	end;
-	function cls:filter(sel) --Reduce the set of matched elements to those that match the selector or pass the function’s test.
+	function QuerySet:filter(sel) --Reduce the set of matched elements to those that match the selector or pass the function’s test.
 		local nq={}
 		self:each(function(inst)
 			if (type(sel)=="function" and sel(inst)) or (type(sel)=="string" and lib.selectorMatch(sel, inst)) then
@@ -57,17 +56,17 @@ end;
 		end)
 		return lib(nq)
 	end;
-	function cls:parent(sel) --Get the parent of each element in the current set of matched elements, optionally filtered by a selector.
+	function QuerySet:parent(sel) --Get the parent of each element in the current set of matched elements, optionally filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
 			local c = inst.Parent
-			if c~=nil and (sel==nil or lib.selectorMatch(sel, c) then
+			if c~=nil and (sel==nil or lib.selectorMatch(sel, c)) then
 				table.insert(nq, c)
 			end
 		end)
 		return lib(nq)
 	end
-	function cls:siblings(sel) --Get the siblings of each element in the set of matched elements, optionally filtered by a selector. (Does not include the original child)
+	function QuerySet:siblings(sel) --Get the siblings of each element in the set of matched elements, optionally filtered by a selector. (Does not include the original child)
 		local nq = {}
 		self:each(function(inst)
 			local c = inst.Parent
@@ -81,24 +80,7 @@ end;
 		end)
 		return lib(nq)
 	end;
-cls.__index = cls;
-
-local mt = {__call=function(inp)
-	local qo = {}
-	
-	if type(inp) == "string" then
-		qo._items = execSelector(inp)
-	elseif type(inp) == "userdata" then
-		qo._items = {inp}
-	elseif type(inp) == "table" then
-		qo._items = {}
-		for i,v in ipairs(inp) do table.insert(qo._items, v) end
-	end
-	
-	setmetatable(qo, cls)
-	return qo
-end}
-table.setmetatable(lib, mt);
+QuerySet.__index = QuerySet;
 
 local function mergeTable(t1, t2)
 	for i,v in ipairs(t2) do
@@ -137,48 +119,85 @@ local ws = "%s" --Whitespace
 local nf = "[%w_ ]" --Name Fields
 
 local selectors = {
-	["#([%$%^]?)("..nf.."+)"] = function(obj, opp, nm) --Name
-		if opp=="$" then
-			return obj.name:lower()==nm:lower()
-		elseif opp=="^" then
-			return obj.name:upper()==nm:upper()
-		end
-		return obj.name==nm
-	end;
-	["%.(%^?)([%w_]+)"] = function(obj, sub, cnm) --className/type
-		if sub=="^" then return obj:IsA(cnm) else
-		return obj.className==cnm end
-	end;
-	["%["..ws.."*("..nf.."+)"..ws.."*([|%*~!%^]?=)"..ws.."*'(.*)'"..ws.."*%]"] = function(obj, fld, opp, val) --Property/value
-		local fstr = tostring(obj[fld])
-		if opp=="|=" then
-			return fstr:sub(1, val:len()+1)==val.."-"
-		elseif opp=="*=" then
-			return fstr:match(val)~=nil
-		elseif opp=="~=" then
-			return string.match(" "..fstr.." ", "%s"..val.."%s")~=nil
-		elseif opp=="^=" then
-			return fstr:match("^"..val)~=nil
-		elseif opp=="$=" then
-			return fstr:match(val.."$")~=nil
-		elseif opp=="!=" then
-			return fstr~=val
-		elseif opp=="=" then
-			return fstr == val;
-		end
-	end;
-	["%["..ws.."*("..nf..")"..ws.."*(!?)"..ws.."*%]"] = function(obj, fld, opp) --Property not nil/nil
-		if opp=="!" then return obj[fld]==nil end
-		return obj[fld] ~= nil
-	end;
-	["%*"] = function() return true;
+	{ --Property/value
+		pat = "%["..ws.."*("..nf.."+)"..ws.."*([|%*~!%^]?=)"..ws.."*['\"](.*)['\"]"..ws.."*%]";
+		f = function(obj, fld, opp, val)
+			local suc, fstr = pcall(function() return tostring(obj[fld]) end)
+			if suc then
+				print(fstr)
+				if opp=="|=" then
+					return fstr:sub(1, val:len()+1)==val.."-"
+				elseif opp=="*=" then
+					return fstr:match(val)~=nil
+				elseif opp=="~=" then
+					return string.match(" "..fstr.." ", "%s"..val.."%s")~=nil
+				elseif opp=="^=" then
+					return fstr:match("^"..val)~=nil
+				elseif opp=="$=" then
+					return fstr:match(val.."$")~=nil
+				elseif opp=="!=" then
+					return fstr~=val
+				elseif opp=="=" then
+					return fstr == val;
+				end
+			end
+		end;
+	};
+	{ --Has/doesn't have property
+		pat = "%["..ws.."*("..nf..")"..ws.."*(!?)"..ws.."*%]";
+		f = function(obj, fld, opp)
+			local has, ret = pcall(function() return obj[fld] end)
+			return (opp=="!")==(not has)
+		end;
+	};
+	{ --Name
+		pat = "#([%$%^]?)("..nf.."+)";
+		f = function(obj, opp, nm)
+			if opp=="$" then
+				return obj.Name:lower()==nm:lower()
+			elseif opp=="^" then
+				return obj.Name:upper()==nm:upper()
+			end
+			return obj.Name==nm
+		end;
+	};
+	{ --className/type
+		pat = "%.(%^?)([%w_]+)";
+		f = function(obj, sub, cnm)
+			if sub=="^" then return obj:IsA(cnm) else
+			return obj.className==cnm end
+		end;
+	};
+	{ --Everything
+		pat = "%*";
+		f = function() return true end;
+	};
 }
 
 --Determines if a specified part of a selector matches the object
 local argMatch = function (arg, obj)
-	for pat, t in pairs(selectors) do
-		for c1, c2, c3, c4, c5 in string.gmatch(arg, pat) do
-			if not t(obj, c1, c2, c3, c4, c5) then return false end
+	local mpatterns = {}
+	for sp,sd in ipairs(selectors) do
+		local pat, t = sd.pat, sd.f;
+		while true do
+			local a,b = string.find(arg, pat)
+			if a ~= nil then
+				table.insert(mpatterns, {
+					f = t;
+					pat = pat;
+					part = string.sub(arg, a,b);
+				})
+				arg = string.sub(arg, 0,a-1)..string.sub(arg, b+1)
+			else break
+			end
+		end
+	end
+	assert(string.len(arg)==0, "Malformed Selector!") --Raise an error if there is a part that was not matched to anything
+	for i,v in ipairs(mpatterns) do
+		local targ, pat, t = v['part'], v['pat'], v['f']
+		--print(pat)
+		for c0,c1,c2,c3,c4,c5 in string.gmatch(targ, pat) do
+			if not t(obj, c0,c1,c2,c3,c4,c5) then return false end
 		end
 	end
 	return true
@@ -189,7 +208,7 @@ local escapes = {
 	[" "] = "s";
 }
 local rescapes = {}
-for a,b in escapes do reascapes[b]=a end
+for a,b in pairs(escapes) do rescapes[b]=a end
 
 local function escape(str)
 	for p,e in pairs(escapes) do
@@ -208,26 +227,29 @@ end
 
 lib.selectorMatch = function (sel, obj)
 	--local iter = type(sel)=="table" and ipairs(sel) or string.gmatch(sel, "[^,]")
-	for ssel in string.gmatch(sel, "[^,]") do
+	for ssel in string.gmatch(sel, "[^,]+") do
 		local path = {}
 		ssel = ssel:gsub("%b[]", function(m) return m:gsub("\'\'", escape) end) --Escape quoted spaces
 		
-		for prm in string.gmatch(ssel, "[^ ]+") do table.insert(path, unescape(prm)) end
+		for prm, cnt in string.gmatch(ssel, "[^ ]+") do
+			local escprm, cnt = unescape(prm)
+			table.insert(path, escprm)
+		end
 		
 		local pthEl = #path
 		local cobj = obj
 		while true do
 			local lsel = path[pthEl]
 			if lsel==">" then
-				if cobj==game or cobj.Parent==nil then break;
-				if lib.selectorMatch(table.concat(path, " ", 1, pthEl-1), cobj.Parent) then return true;
+				--if cobj==game or cobj.Parent==nil then break end;
+				if lib.selectorMatch(table.concat(path, " ", 1, pthEl-1), cobj) then return true end;
 				break
 			elseif argMatch(lsel, cobj) then
 				pthEl = pthEl-1
 				if pthEl == 0 then return true end
 			elseif pthEl == #path then break --Last selector must match the input obj
-			elseif cobj==game or cobj.Parent==nil then break --We've reached the top of the tree and can't go further
 			end
+			if cobj==game or cobj.Parent==nil then break end --We've reached the top of the tree and can't go further
 			cobj = cobj.Parent
 		end
 	end
@@ -243,4 +265,22 @@ local function execSelector(sel, par)
 	end
 	return matches
 end
+
+local mt = {__call=function(self, inp, par)
+	local qo = {}
+	
+	if par == nil then par = Workspace end
+	if type(inp) == "string" then
+		qo._items = execSelector(inp, par)
+	elseif type(inp) == "userdata" then
+		qo._items = {inp}
+	elseif type(inp) == "table" then
+		qo._items = {}
+		for i,v in ipairs(inp) do table.insert(qo._items, v) end
+	end
+	
+	setmetatable(qo, QuerySet)
+	return qo
+end}
+setmetatable(lib, mt);
 
