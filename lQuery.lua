@@ -4,7 +4,13 @@ _G.l = lib;
 local QuerySet = {}
 function QuerySet:set(p, v)
 	for x,i in ipairs(self._items) do
-		pcall(function() i[p]=v end)
+		if type(p)=="table" then
+			for p2,v2 in pairs(p) do
+				self:set(p2,v2)
+			end
+		else
+			pcall(function() i[p]=v end)
+		end
 	end
 end;
 function QuerySet:get(p)
@@ -19,14 +25,41 @@ function QuerySet:each(f)
 		f(i, x)
 	end
 end;
+function QuerySet:select()
+	game.Selection:Set(self._items)
+end;
+function QuerySet:remove()
+	while #self._items do
+		pcall(function() self._items[1]:Remove() end)
+		table.remove(self._items, 1)
+	end
+end;
 function QuerySet:add(el)
 	table.insert(self._items, el)
+end;
+function QuerySet:count()
+	return #self._items
+end;
+function QuerySet:insert(typ, attrs)
+	local ni = type(typ)=="string" and Instance.new(typ) or typ:Clone()
+	lib(ni):set(attrs)
+	for x,i in ipairs(self._items) do
+		ni:Clone().Parent = i
+	end
 end;
 function QuerySet:__add(oth)
 	for i,v in ipairs(oth) do
 		table.insert(self._items, v)
 	end
 end;
+function QuerySet:__call() --Shortcut for :select()
+	self:select()
+end;
+
+--Printing
+	function QuerySet:pcount()
+		print(self:count())
+	end;
 
 --Traversing
 	function QuerySet:children(sel) --Get the children of each element in the set of matched elements, optionally filtered by a selector.
@@ -116,15 +149,14 @@ local function recurParents(chld)
 end
 
 local ws = "%s" --Whitespace
-local nf = "[%w_ ]" --Name Fields
+local nf = "[%w_]" --Name Fields
 
 local selectors = {
 	{ --Property/value
-		pat = "%["..ws.."*("..nf.."+)"..ws.."*([|%*~!%^]?=)"..ws.."*['\"](.*)['\"]"..ws.."*%]";
+		pat = "%["..ws.."*("..nf.."+)"..ws.."*([|%*~!%^%$]?=)"..ws.."*['\"](.*)['\"]"..ws.."*%]";
 		f = function(obj, fld, opp, val)
 			local suc, fstr = pcall(function() return tostring(obj[fld]) end)
 			if suc then
-				print(fstr)
 				if opp=="|=" then
 					return fstr:sub(1, val:len()+1)==val.."-"
 				elseif opp=="*=" then
@@ -168,6 +200,10 @@ local selectors = {
 			return obj.className==cnm end
 		end;
 	};
+	{ --No Children
+		pat = "<";
+		f = function(obj) return #obj:GetChildren()==0 end;
+	};
 	{ --Everything
 		pat = "%*";
 		f = function() return true end;
@@ -192,7 +228,7 @@ local argMatch = function (arg, obj)
 			end
 		end
 	end
-	assert(string.len(arg)==0, "Malformed Selector!") --Raise an error if there is a part that was not matched to anything
+	assert(string.len(arg)==0, "Malformed Selector! Remnant: "..arg) --Raise an error if there is a part that was not matched to anything
 	for i,v in ipairs(mpatterns) do
 		local targ, pat, t = v['part'], v['pat'], v['f']
 		--print(pat)
@@ -225,13 +261,115 @@ local function unescape(str)
 	end)
 end
 
+local function selBlockMatch(section, obj)
+	for i,v in ipairs(section) do
+		local targ, pat, t = v['part'], v['pat'], v['f']
+		for c0,c1,c2,c3,c4,c5 in string.gmatch(targ, pat) do
+			if not t(obj, c0,c1,c2,c3,c4,c5) then return false end
+		end
+	end
+	return true
+end
+
+local function extractSelectors(sel)
+	local path = {{}}
+
+	local tsel = sel
+	local going = true
+	while going do
+		going = false
+		if (tsel:sub(1,1)==" ") then
+			going = true
+			if #(path[#path])>0 then table.insert(path, {}) end
+			tsel = tsel:sub(2)
+		elseif (tsel:sub(1,1)==">") then
+			going=true
+			table.insert(path, ">")
+			tsel = tsel:sub(2)
+		else 
+			for sp,sd in ipairs(selectors) do
+				local pat, t = sd.pat, sd.f;
+				while true do
+					local a,b = string.find(tsel, '^'..pat)
+					if a ~= nil then
+						going = true
+						table.insert(path[#path], {
+							f = t;
+							pat = pat;
+							part = string.sub(tsel, a,b);
+						})
+						tsel = string.sub(tsel, 0,a-1)..string.sub(tsel, b+1)
+					else break
+					end
+				end
+			end
+		end
+	end
+	assert(string.len(tsel)==0, "Malformed Selector! Remnant: "..tsel) --Raise an error if there is a part that was not matched to anything
+	local tc = {}
+	for i,v in ipairs(path) do
+		if type(v)~="table" or #v>0 then
+			table.insert(tc, v)
+		end
+	end
+	return tc
+end
+
+local function testSelectors(path, obj)
+	local pthEl = #path
+	local cobj = obj
+	while true do
+		local lsel = path[pthEl]
+		if lsel==">" then
+			--if cobj==game or cobj.Parent==nil then break end;
+			local nst = {}
+			for i,v in ipairs(path) do
+				if i<pthEl then
+					table.insert(nst, v)
+				else break end
+			end
+			
+			if testSelectors(nst, cobj) then return true end;
+			break
+		elseif selBlockMatch(lsel, cobj) then
+			pthEl = pthEl-1
+			if pthEl == 0 then return true end
+		elseif pthEl == #path then break --Last selector must match the input obj
+		end
+		if cobj==game or cobj.Parent==nil then break end --We've reached the top of the tree and can't go further
+		cobj = cobj.Parent
+	end
+	return false
+end
+
 lib.selectorMatch = function (sel, obj)
+	--local iter = type(sel)=="table" and ipairs(sel) or string.gmatch(sel, "[^,]")
+
+	for ssel in string.gmatch(sel, "[^,]+") do
+		local path = extractSelectors(ssel)
+		if testSelectors(path, obj) then return true end
+	end
+	return false
+end
+
+lib.selectorMatchList = function (sel, objs)
+	local ft = {}
+	for ssel in string.gmatch(sel, "[^,]+") do
+		local path = extractSelectors(ssel)
+		for i, obj in ipairs(objs) do
+			if testSelectors(path, obj) then table.insert(ft, obj) end
+		end
+	end
+	return ft
+end
+
+--[[lib.selectorMatch = function (sel, obj)
 	--local iter = type(sel)=="table" and ipairs(sel) or string.gmatch(sel, "[^,]")
 	for ssel in string.gmatch(sel, "[^,]+") do
 		local path = {}
-		ssel = ssel:gsub("%b[]", function(m) return m:gsub("\'\'", escape) end) --Escape quoted spaces
-		
-		for prm, cnt in string.gmatch(ssel, "[^ ]+") do
+		ssel = ssel:gsub("%b[]", function(m) return m:gsub("\'.-\'", escape) end) --Escape quoted spaces
+
+		for prm, cnt in string.gmatch(ssel, "([^ ]+)") do
 			local escprm, cnt = unescape(prm)
 			table.insert(path, escprm)
 		end
@@ -254,23 +392,21 @@ lib.selectorMatch = function (sel, obj)
 		end
 	end
 	return false
-end
+end]]
 
 local function execSelector(sel, par)
 	par = par or game
 	local tree = recurChilds(par)
-	local matches = {}
-	for i,v in ipairs(tree) do
-		if lib.selectorMatch(sel, v) then table.insert(matches, v) end
-	end
-	return matches
+	return lib.selectorMatchList(sel, tree)
 end
 
 local mt = {__call=function(self, inp, par)
 	local qo = {}
 	
 	if par == nil then par = Workspace end
-	if type(inp) == "string" then
+	if inp==nil then
+		qo._items = game.Selection:Get()
+	elseif type(inp) == "string" then
 		qo._items = execSelector(inp, par)
 	elseif type(inp) == "userdata" then
 		qo._items = {inp}
