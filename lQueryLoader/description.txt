@@ -1,0 +1,11 @@
+This Plugin loads lQuery into Studio as _G.l().  And adds a button to add lQuery to the Workspace.
+
+lQuery is powerful script based off of jQuery for finding and "selecting" objects in Roblox. It can be used via the command line in Studio, or at runtime by any script. Selectors include:
+#(^$)Name (^ begins with) ($ end with)
+.(^)className (^ Use IsA instead of exact match)
+[PropertyExists(!)] (! Does not exist)
+[Property(|*~!^$)="Value"] (See jQuery Attribute selectors)
+
+Characters in () indicate possible variations of that selector.
+
+An lQuery object can be formed used _G.l(arg), where arg is a String selector, a single object, or a table of objects. If using a String selector, a second argument can be provided to tell lQuery where to search, by default it is Workspace.

@@ -1,3 +1,6 @@
+-- 2/4/2014
+
+local lQuerySrc = [[
 local lib = {}
 _G.l = lib;
 
@@ -52,9 +55,6 @@ function QuerySet:__add(oth)
 		table.insert(self._items, v)
 	end
 end;
---function QuerySet:__len()
---	self:count()
---end;
 function QuerySet:__call() --Shortcut for :select()
 	self:select()
 end;
@@ -83,7 +83,7 @@ end;
 		end)
 		return lib(nq)
 	end;
-	function QuerySet:filter(sel) --Reduce the set of matched elements to those that match the selector or pass the function’s test.
+	function QuerySet:filter(sel) --Reduce the set of matched elements to those that match the selector or pass the function?s test.
 		local nq={}
 		self:each(function(inst)
 			if (type(sel)=="function" and sel(inst)) or (type(sel)=="string" and lib.selectorMatch(sel, inst)) then
@@ -391,4 +391,25 @@ local mt = {__call=function(self, inp, par)
 	return qo
 end}
 setmetatable(lib, mt);
+]]
 
+loadstring(lQuerySrc)()
+local Pmanager = PluginManager()
+local pl = Pmanager:CreatePlugin()
+local TBar = pl:CreateToolbar("lQuery")
+local coregui = game:GetService("CoreGui")
+
+local installBtn = TBar:CreateButton("","Install/Update lQuery",  "script_lightning.png")
+installBtn.Click:connect(function ()
+	local lq = _G.l(".Script#lQuery, .LocalScript#lQuery")
+	if lq:count() > 0 then
+		lq:each(function (obj)
+			obj.Source = lQuerySrc
+			print("Updated lQuery at \"".. obj:GetFullName() .."\"")
+		end)
+	else
+		local s = Instance.new("Script", Workspace)
+		s.Name = "lQuery"
+		s.Source = lQuerySrc
+	end
+end)
