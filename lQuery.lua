@@ -159,7 +159,6 @@ local selectors = {
 		pat = "(.*)>";
 		terminate = true;
 		f = function(obj, subsel)
-			print(subsel, obj, lib.selectorMatch(subsel, obj))
 			return lib.selectorMatch(subsel, obj)
 		end
 	};
