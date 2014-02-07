@@ -1,6 +1,35 @@
 local lib = {}
 _G.l = lib;
 
+lib.toArray = function (tab)
+	local arr = {}
+	for n,v in pairs(tab) do
+		table.insert(arr, v)
+	end
+	return arr
+end
+
+function lib.mergeTable(t1, t2)
+	for i,v in ipairs(t2) do
+		table.insert(t1, v)
+	end
+	return t1
+end
+
+--Recursively gets children along a tree
+function lib.recurChilds(...)
+	local nloop = {...}
+	local found = {}
+	while #nloop>0 do
+		table.insert(found, nloop[1])
+		for i,v in ipairs(nloop[1]:GetChildren()) do
+			table.insert(nloop, v)
+		end
+		table.remove(nloop,1)
+	end
+	return found
+end
+
 local QuerySet = {}
 function QuerySet:set(p, v)
 	for x,i in ipairs(self._items) do
@@ -52,9 +81,6 @@ function QuerySet:__add(oth)
 		table.insert(self._items, v)
 	end
 end;
---function QuerySet:__len()
---	self:count()
---end;
 function QuerySet:__call() --Shortcut for :select()
 	self:select()
 end;
@@ -68,18 +94,17 @@ end;
 	function QuerySet:children(sel) --Get the children of each element in the set of matched elements, optionally filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
-			for i,c in ipairs(inst:GetChildren()) do
-				if sel==nil or lib.selectorMatch(sel, c) then
-					table.insert(nq, c)
-				end
-			end
+			lib.mergeTable(nq, inst:GetChildren())
 		end)
+		if sel ~= nil then
+			nq = lib.selectorMatchList(sel, nq)
+		end
 		return lib(nq)
 	end;
 	function QuerySet:find(sel) --Get the descendants of each element in the current set of matched elements, filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
-			mergeTable(nq, execSelector(sel, inst))
+			lib.mergeTable(nq, execSelector(sel, inst))
 		end)
 		return lib(nq)
 	end;
@@ -99,11 +124,11 @@ end;
 	function QuerySet:parent(sel) --Get the parent of each element in the current set of matched elements, optionally filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
-			local c = inst.Parent
-			if c~=nil and (sel==nil or lib.selectorMatch(sel, c)) then
-				table.insert(nq, c)
-			end
+			table.insert(nq, inst.Parent)
 		end)
+		if sel ~= nil then
+			nq = lib.selectorMatchList(sel, nq)
+		end
 		return lib(nq)
 	end
 	function QuerySet:siblings(sel) --Get the siblings of each element in the set of matched elements, optionally filtered by a selector. (Does not include the original child)
@@ -112,36 +137,18 @@ end;
 			local c = inst.Parent
 			if c~=nil then
 				for i,v in ipairs(c:GetChildren()) do
-					if v~=inst and (sel==nil or lib.selectorMatch(sel, v)) then
+					if v~=inst then
 						table.insert(nq, v)
 					end
 				end
 			end
 		end)
+		if sel ~= nil then
+			nq = lib.selectorMatchList(sel, nq)
+		end
 		return lib(nq)
 	end;
 QuerySet.__index = QuerySet;
-
-local function mergeTable(t1, t2)
-	for i,v in ipairs(t2) do
-		table.insert(t1, v)
-	end
-	return t1
-end
-
---Recursively gets children along a tree
-local function recurChilds(par)
-	local nloop = {par}
-	local found = {}
-	while #nloop>0 do
-		table.insert(found, nloop[1])
-		for i,v in ipairs(nloop[1]:GetChildren()) do
-			table.insert(nloop, v)
-		end
-		table.remove(nloop,1)
-	end
-	return found
-end
 
 --Recursively gets parents along a tree
 local function recurParents(chld)
@@ -201,7 +208,7 @@ local selectors = {
 		pat = ":has(%b())";
 		f = function(obj, subsel)
 			local nsel = subsel:sub(2,-2)
-			return #lib.selectorMatchList(nsel, obj:GetChildren()) > 0
+			return #lib.toArray(lib.selectorMatchList(nsel, lib.recurChilds(unpack(obj:GetChildren())))) > 0
 		end;
 	};
 	{ --Selects all elements that do NOT match the given selector
@@ -220,6 +227,13 @@ local selectors = {
 		pat = ":first%-child";
 		f = function(obj)
 			return obj == obj.Parent:GetChildren()[1]
+		end;
+	};
+	{ --
+		pat = ":last%-child";
+		f = function(obj)
+			local chldrn = obj.Parent:GetChildren()
+			return obj == chldrn[#chldrn]
 		end;
 	};
 	{ --
@@ -380,8 +394,10 @@ local function testSelectorsMulti(paths, objs)
 			repeat --Eliminate everything we can
 				matches, non_matches = selBlockMatchMulti(lsel, c_iter)
 			
-				for initial, obj in pairs(matches) do
-					next_iter[initial] = obj
+				for initial, cobj in pairs(matches) do --Capture items that were successfully matched and queue them for the next selector
+					if not (cobj==game or cobj.Parent==nil) then --We've reached the top of the tree and can't go further
+						next_iter[initial] = cobj.Parent
+					end
 				end
 				
 				c_iter = {}
@@ -395,19 +411,11 @@ local function testSelectorsMulti(paths, objs)
 			until nmc == 0
 			
 			pthEl = pthEl-1
-			if pthEl == 0 then
+			if pthEl == 0 then --We're done here.
 				for initial, cobj in pairs(next_iter) do
 					fmatches[initial] = initial
-					--table.insert(fmatches, initial)
 				end
 				break
-			end
-			for initial, cobj in pairs(next_iter) do
-				if not (cobj==game or cobj.Parent==nil) then --We've reached the top of the tree and can't go further
-					next_iter[initial] = cobj.Parent
-				else
-					next_iter[initial] = nil
-				end
 			end
 		end
 	end
@@ -426,7 +434,7 @@ end
 
 local function execSelector(sel, par)
 	par = par or game
-	local tree = recurChilds(par)
+	local tree = lib.recurChilds(par)
 	local tbl, tbl2 = lib.selectorMatchList(sel, tree), {}
 	for n, v in pairs(tbl) do
 		table.insert(tbl2, v)
@@ -446,7 +454,7 @@ local mt = {__call=function(self, inp, par)
 		qo._items = {inp}
 	elseif type(inp) == "table" then
 		qo._items = {}
-		for i,v in ipairs(inp) do table.insert(qo._items, v) end
+		for i,v in pairs(inp) do table.insert(qo._items, v) end
 	end
 	
 	setmetatable(qo, QuerySet)
