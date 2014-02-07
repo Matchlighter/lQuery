@@ -155,6 +155,14 @@ local ws = "%s" --Whitespace
 local nf = "[%w_]" --Name Fields
 
 local selectors = {
+	{ --Direct Child
+		pat = "(.*)>";
+		terminate = true;
+		f = function(obj, subsel)
+			print(subsel, obj, lib.selectorMatch(subsel, obj))
+			return lib.selectorMatch(subsel, obj)
+		end
+	};
 	{ --Property/value
 		pat = "%["..ws.."*("..nf.."+)"..ws.."*([|%*~!%^%$]?=)"..ws.."*['\"](.*)['\"]"..ws.."*%]";
 		f = function(obj, fld, opp, val)
@@ -185,6 +193,38 @@ local selectors = {
 			return (opp=="!")==(not has)
 		end;
 	};
+	{ --Has 1+ children matching a selector
+		pat = ":has(%b())";
+		f = function(obj, subsel)
+			local nsel = subsel:sub(2,-2)
+			return #lib.selectorMatchList(nsel, obj:GetChildren()) > 0
+		end;
+	};
+	{ --Selects all elements that do NOT match the given selector
+		pat = ":not(%b())";
+		f = function(obj, subsel)
+			local nsel = subsel:sub(2,-2)
+			return not lib.selectorMatch(nsel, obj)
+		end;
+	};
+	{ --
+		pat = ":first%-child";
+		f = function(obj)
+			return obj == obj.Parent:GetChildren()[1]
+		end;
+	};
+	{ --
+		pat = ":only%-child";
+		f = function(obj) return #obj.Parent:GetChildren()==1 end;
+	};
+	{ --No Children
+		pat = ":empty";
+		f = function(obj) return #obj:GetChildren()==0 end;
+	};
+	{ --Has children
+		pat = ":parent";
+		f = function(obj) return #obj:GetChildren()>0 end;
+	};
 	{ --Name
 		pat = "#([%$%^]?)("..nf.."+)";
 		f = function(obj, opp, nm)
@@ -203,44 +243,11 @@ local selectors = {
 			return obj.className==cnm end
 		end;
 	};
-	{ --No Children
-		pat = "<";
-		f = function(obj) return #obj:GetChildren()==0 end;
-	};
 	{ --Everything
 		pat = "%*";
 		f = function() return true end;
 	};
 }
-
---Determines if a specified part of a selector matches the object
-local argMatch = function (arg, obj)
-	local mpatterns = {}
-	for sp,sd in ipairs(selectors) do
-		local pat, t = sd.pat, sd.f;
-		while true do
-			local a,b = string.find(arg, pat)
-			if a ~= nil then
-				table.insert(mpatterns, {
-					f = t;
-					pat = pat;
-					part = string.sub(arg, a,b);
-				})
-				arg = string.sub(arg, 0,a-1)..string.sub(arg, b+1)
-			else break
-			end
-		end
-	end
-	assert(string.len(arg)==0, "Malformed Selector! Remnant: "..arg) --Raise an error if there is a part that was not matched to anything
-	for i,v in ipairs(mpatterns) do
-		local targ, pat, t = v['part'], v['pat'], v['f']
-		--print(pat)
-		for c0,c1,c2,c3,c4,c5 in string.gmatch(targ, pat) do
-			if not t(obj, c0,c1,c2,c3,c4,c5) then return false end
-		end
-	end
-	return true
-end
 
 local escapes = {
 	["\\"] = "\\";
@@ -266,9 +273,9 @@ end
 
 local function selBlockMatch(section, obj)
 	for i,v in ipairs(section) do
-		local targ, pat, t = v['part'], v['pat'], v['f']
-		for c0,c1,c2,c3,c4,c5 in string.gmatch(targ, pat) do
-			if not t(obj, c0,c1,c2,c3,c4,c5) then return false end
+		if not v.sel.f(obj, unpack(v.args)) then
+			if v.sel.terminate then return "TERMINATE" end
+			return false
 		end
 	end
 	return true
@@ -276,7 +283,8 @@ end
 
 local function extractSelectors(sel)
 	local path = {{}}
-
+	local paths = {path}
+	
 	local tsel = sel
 	local going = true
 	while going do
@@ -285,21 +293,21 @@ local function extractSelectors(sel)
 			going = true
 			if #(path[#path])>0 then table.insert(path, {}) end
 			tsel = tsel:sub(2)
-		elseif (tsel:sub(1,1)==">") then
-			going=true
-			table.insert(path, ">")
+		elseif (tsel:sub(1,1)==",") then
+			going = true
+			table.insert(paths, {{}})
+			path = paths[#paths]
 			tsel = tsel:sub(2)
 		else 
 			for sp,sd in ipairs(selectors) do
-				local pat, t = sd.pat, sd.f;
 				while true do
-					local a,b = string.find(tsel, '^'..pat)
+					local a,b = string.find(tsel, '^'..sd.pat)
 					if a ~= nil then
 						going = true
+						local part = string.sub(tsel, a,b);
 						table.insert(path[#path], {
-							f = t;
-							pat = pat;
-							part = string.sub(tsel, a,b);
+							sel = sd;
+							args = {part:match(sd.pat)};
 						})
 						tsel = string.sub(tsel, 0,a-1)..string.sub(tsel, b+1)
 					else break
@@ -309,59 +317,52 @@ local function extractSelectors(sel)
 		end
 	end
 	assert(string.len(tsel)==0, "Malformed Selector! Remnant: "..tsel) --Raise an error if there is a part that was not matched to anything
-	local tc = {}
-	for i,v in ipairs(path) do
-		if type(v)~="table" or #v>0 then
-			table.insert(tc, v)
+	local cpaths = {}
+	for n, pth in ipairs(paths) do
+		local tc = {}
+		for i,v in ipairs(pth) do
+			if type(v)~="table" or #v>0 then
+				table.insert(tc, v)
+			end
+		end
+		if #tc > 0 then
+			table.insert(cpaths, tc)
 		end
 	end
-	return tc
+	return cpaths
 end
 
-local function testSelectors(path, obj)
-	local pthEl = #path
-	local cobj = obj
-	while true do
-		local lsel = path[pthEl]
-		if lsel==">" then
-			--if cobj==game or cobj.Parent==nil then break end;
-			local nst = {}
-			for i,v in ipairs(path) do
-				if i<pthEl then
-					table.insert(nst, v)
-				else break end
+local function testSelectors(paths, obj)
+	for i, path in ipairs(paths) do
+		local pthEl = #path
+		local cobj = obj
+		while true do
+			local lsel = path[pthEl]
+			local match = selBlockMatch(lsel, cobj)
+			if match == "TERMINATE" then
+				return false
+			elseif match then
+				pthEl = pthEl-1
+				if pthEl == 0 then return true end
+			elseif pthEl == #path then break --Last selector must match the input obj
 			end
-			
-			if testSelectors(nst, cobj) then return true end;
-			break
-		elseif selBlockMatch(lsel, cobj) then
-			pthEl = pthEl-1
-			if pthEl == 0 then return true end
-		elseif pthEl == #path then break --Last selector must match the input obj
+			if cobj==game or cobj.Parent==nil then break end --We've reached the top of the tree and can't go further
+			cobj = cobj.Parent
 		end
-		if cobj==game or cobj.Parent==nil then break end --We've reached the top of the tree and can't go further
-		cobj = cobj.Parent
 	end
 	return false
 end
 
 lib.selectorMatch = function (sel, obj)
-	--local iter = type(sel)=="table" and ipairs(sel) or string.gmatch(sel, "[^,]")
-
-	for ssel in string.gmatch(sel, "[^,]+") do
-		local path = extractSelectors(ssel)
-		if testSelectors(path, obj) then return true end
-	end
-	return false
+	local paths = extractSelectors(sel)
+	return testSelectors(paths, obj)
 end
 
 lib.selectorMatchList = function (sel, objs)
 	local ft = {}
-	for ssel in string.gmatch(sel, "[^,]+") do
-		local path = extractSelectors(ssel)
-		for i, obj in ipairs(objs) do
-			if testSelectors(path, obj) then table.insert(ft, obj) end
-		end
+	local paths = extractSelectors(sel)
+	for i, obj in ipairs(objs) do
+		if testSelectors(paths, obj) then table.insert(ft, obj) end
 	end
 	return ft
 end
