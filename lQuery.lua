@@ -272,16 +272,6 @@ local selectors = {
 	};
 }
 
---[[local function selBlockMatch(section, obj)
-	for i,v in ipairs(section) do
-		if not v.sel.f(obj, unpack(v.args)) then
-			if v.sel.terminate then return "TERMINATE" end
-			return false
-		end
-	end
-	return true
-end]]
-
 local function selBlockMatchMulti(section, left_objs)
 	local mobjs = left_objs
 	local umobjs = {}
@@ -353,27 +343,6 @@ local function extractSelectors(sel)
 	end
 	return cpaths
 end
-
---[[local function testSelectors(paths, obj)
-	for i, path in ipairs(paths) do
-		local pthEl = #path
-		local cobj = obj
-		while true do
-			local lsel = path[pthEl]
-			local match = selBlockMatch(lsel, cobj)
-			if match == "TERMINATE" then
-				return false
-			elseif match then
-				pthEl = pthEl-1
-				if pthEl == 0 then return true end
-			elseif pthEl == #path then break --Last selector must match the input obj
-			end
-			if cobj==game or cobj.Parent==nil then break end --We've reached the top of the tree and can't go further
-			cobj = cobj.Parent
-		end
-	end
-	return false
-end]]
 
 local function testSelectorsMulti(paths, objs)
 	local fmatches = {}
