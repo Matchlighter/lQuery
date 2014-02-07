@@ -85,11 +85,15 @@ end;
 	end;
 	function QuerySet:filter(sel) --Reduce the set of matched elements to those that match the selector or pass the function’s test.
 		local nq={}
-		self:each(function(inst)
-			if (type(sel)=="function" and sel(inst)) or (type(sel)=="string" and lib.selectorMatch(sel, inst)) then
-				table.insert(nq, inst)
-			end
-		end)
+		if type(sel)=="function" then
+			self:each(function(inst)
+				if sel(inst) then
+					table.insert(nq, inst)
+				end
+			end)
+		else
+			nq = lib.selectorMatchList(sel, self._items)
+		end
 		return lib(nq)
 	end;
 	function QuerySet:parent(sel) --Get the parent of each element in the current set of matched elements, optionally filtered by a selector.
@@ -158,9 +162,9 @@ local selectors = {
 	{ --Direct Child
 		pat = "(.*)>";
 		terminate = true;
-		f = function(obj, subsel)
-			print(subsel, obj, lib.selectorMatch(subsel, obj))
-			return lib.selectorMatch(subsel, obj)
+		multi = true;
+		f = function(objs, umobjs, subsel)
+			return lib.selectorMatchList(subsel, objs)
 		end
 	};
 	{ --Property/value
@@ -202,9 +206,14 @@ local selectors = {
 	};
 	{ --Selects all elements that do NOT match the given selector
 		pat = ":not(%b())";
-		f = function(obj, subsel)
+		multi = true;
+		f = function(objs, umobjs, subsel)
 			local nsel = subsel:sub(2,-2)
-			return not lib.selectorMatch(nsel, obj)
+			for n,v in pairs(lib.selectorMatchList(nsel, objs)) do
+				objs[n] = nil
+				umobjs[n] = v
+			end
+			return objs
 		end;
 	};
 	{ --
@@ -249,29 +258,7 @@ local selectors = {
 	};
 }
 
-local escapes = {
-	["\\"] = "\\";
-	[" "] = "s";
-}
-local rescapes = {}
-for a,b in pairs(escapes) do rescapes[b]=a end
-
-local function escape(str)
-	for p,e in pairs(escapes) do
-		str=str:gsub(p,"\\"..e)
-	end
-	return str
-end
-
-local function unescape(str)
-	return str:gsub("\\(.)", function(c)
-		for e,p in pairs(rescapes) do
-			if e==c then return p end
-		end
-	end)
-end
-
-local function selBlockMatch(section, obj)
+--[[local function selBlockMatch(section, obj)
 	for i,v in ipairs(section) do
 		if not v.sel.f(obj, unpack(v.args)) then
 			if v.sel.terminate then return "TERMINATE" end
@@ -279,6 +266,27 @@ local function selBlockMatch(section, obj)
 		end
 	end
 	return true
+end]]
+
+local function selBlockMatchMulti(section, left_objs)
+	local mobjs = left_objs
+	local umobjs = {}
+	for i,v in ipairs(section) do
+		if v.sel.multi then
+			mobjs = v.sel.f(mobjs, umobjs, unpack(v.args))
+		else
+			local objs = mobjs
+			mobjs = {}
+			for initial, obj in pairs(objs) do
+				if v.sel.f(obj, unpack(v.args)) then
+					mobjs[initial] = obj
+				elseif not v.sel.terminate then
+					umobjs[initial] = obj
+				end
+			end
+		end
+	end
+	return mobjs, umobjs
 end
 
 local function extractSelectors(sel)
@@ -332,7 +340,7 @@ local function extractSelectors(sel)
 	return cpaths
 end
 
-local function testSelectors(paths, obj)
+--[[local function testSelectors(paths, obj)
 	for i, path in ipairs(paths) do
 		local pthEl = #path
 		local cobj = obj
@@ -351,26 +359,79 @@ local function testSelectors(paths, obj)
 		end
 	end
 	return false
+end]]
+
+local function testSelectorsMulti(paths, objs)
+	local fmatches = {}
+	for i, path in ipairs(paths) do
+		local pthEl = #path
+		local next_iter = {}
+		for i,v in pairs(objs) do
+			if type(i) == "number" then i = v end
+			next_iter[i] = v
+		end
+		while true do
+			local lsel = path[pthEl]
+			local c_iter = next_iter
+			next_iter = {}
+			local nmc = 0
+			
+			local matches, non_matches = {}, {}
+			repeat --Eliminate everything we can
+				matches, non_matches = selBlockMatchMulti(lsel, c_iter)
+			
+				for initial, obj in pairs(matches) do
+					next_iter[initial] = obj
+				end
+				
+				c_iter = {}
+				nmc = 0
+				for initial, cobj in pairs(non_matches) do
+					if (not (cobj==game or cobj.Parent==nil)) and pthEl ~= #path then --We've reached the top of the tree and can't go further --Last selector must match the input obj
+						c_iter[initial] = cobj.Parent
+						nmc = nmc+1
+					end
+				end
+			until nmc == 0
+			
+			pthEl = pthEl-1
+			if pthEl == 0 then
+				for initial, cobj in pairs(next_iter) do
+					fmatches[initial] = initial
+					--table.insert(fmatches, initial)
+				end
+				break
+			end
+			for initial, cobj in pairs(next_iter) do
+				if not (cobj==game or cobj.Parent==nil) then --We've reached the top of the tree and can't go further
+					next_iter[initial] = cobj.Parent
+				else
+					next_iter[initial] = nil
+				end
+			end
+		end
+	end
+	return fmatches
 end
 
 lib.selectorMatch = function (sel, obj)
-	local paths = extractSelectors(sel)
-	return testSelectors(paths, obj)
+	return lib.selectorMatchList(paths, {obj})
 end
 
 lib.selectorMatchList = function (sel, objs)
 	local ft = {}
 	local paths = extractSelectors(sel)
-	for i, obj in ipairs(objs) do
-		if testSelectors(paths, obj) then table.insert(ft, obj) end
-	end
-	return ft
+	return testSelectorsMulti(paths, objs)
 end
 
 local function execSelector(sel, par)
 	par = par or game
 	local tree = recurChilds(par)
-	return lib.selectorMatchList(sel, tree)
+	local tbl, tbl2 = lib.selectorMatchList(sel, tree), {}
+	for n, v in pairs(tbl) do
+		table.insert(tbl2, v)
+	end
+	return tbl2
 end
 
 local mt = {__call=function(self, inp, par)
