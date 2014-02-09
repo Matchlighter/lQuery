@@ -41,6 +41,7 @@ function QuerySet:set(p, v)
 			pcall(function() i[p]=v end)
 		end
 	end
+	return self
 end;
 function QuerySet:get(p)
 	for x,i in ipairs(self._items) do
@@ -53,18 +54,22 @@ function QuerySet:each(f)
 	for x,i in ipairs(self._items) do
 		f(i, x)
 	end
+	return self
 end;
 function QuerySet:select()
 	game.Selection:Set(self._items)
+	return self
 end;
 function QuerySet:remove()
 	while #self._items do
 		pcall(function() self._items[1]:Remove() end)
 		table.remove(self._items, 1)
 	end
+	return self
 end;
 function QuerySet:add(el)
 	table.insert(self._items, el)
+	return self
 end;
 function QuerySet:count()
 	return #self._items
@@ -75,6 +80,7 @@ function QuerySet:insert(typ, attrs)
 	for x,i in ipairs(self._items) do
 		ni:Clone().Parent = i
 	end
+	return self
 end;
 function QuerySet:__add(oth)
 	for i,v in ipairs(oth) do
@@ -430,4 +436,4 @@ local mt = {__call=function(self, inp, par)
 	return qo
 end}
 setmetatable(lib, mt);
-
+return lib
