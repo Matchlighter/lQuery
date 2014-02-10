@@ -60,10 +60,9 @@ function QuerySet:select()
 	game.Selection:Set(self._items)
 	return self
 end;
-function QuerySet:remove()
-	while #self._items do
-		pcall(function() self._items[1]:Remove() end)
-		table.remove(self._items, 1)
+function QuerySet:remove(sel)
+	for n,v in pairs(lib.selectorMatchList(sel or "*", self._items)) do
+		v:Remove()
 	end
 	return self
 end;
