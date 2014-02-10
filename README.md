@@ -3,6 +3,8 @@ lQuery
 
 jQuery-inspired object selector for rbxLua
 
+Selectors
+==
 Use l("<selector>") to create a lQuery object.  
 Available selectors are: (Variations noted in parentheses ())
 - #(^$)Name
@@ -28,6 +30,8 @@ Available selectors are: (Variations noted in parentheses ())
 - :empty
 - :parent - Any object that has children
 
+Usage
+==
 - Grouped selectors apply to one object. e.g. "#Name.Part" will match a Part name "Name"  
 - Space separated selectors will match a tree. e.g. "#Name .Part" will match a Part with an acestor named "Name"  
 - Comma separated selectors will be treated as individual selectors with an or operation. e.g. "#Name, .Part" will match anything named "Name" or any Part.  
