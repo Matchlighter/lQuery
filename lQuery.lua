@@ -277,7 +277,7 @@ local selectors = {
 		f = function() return true end;
 	};
 	-- { --Direct Child
-		-- pat = "(.*)>"; --
+		-- pat = "(.*)>"; -- Unfortunately the (.*) in the front causes confusion when used in quotes or ()
 		-- terminate = true;
 		-- multi = true;
 		-- consume = true;
@@ -306,25 +306,6 @@ local function selBlockMatchMulti(section, left_objs)
 		end
 	end
 	return mobjs, umobjs
-end
-
-local function doEscapes(str)
-	local escs = {}
-	local enum, ekey = 0, ""
-	local function esc(cap)
-		enum = enum+1
-		local k = string.format(ekey, enum)
-		escs[k] = cap
-		return k
-	end
-	
-	ekey = '"QUOT%d"'
-	str = string.gsub(str, "\".-\"", esc)
-	ekey = "'SQUOT%d'"
-	str = string.gsub(str, "'.-\'", esc)
-	ekey = "(PARENTH%d)"
-	str = string.gsub(str, "%b()", esc)
-
 end
 
 local function extractSelectors(sel)

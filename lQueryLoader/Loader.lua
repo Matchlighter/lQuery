@@ -1,4 +1,4 @@
--- 2/9/2014
+-- 2/10/2014
 
 local lQuerySrc = [[
 local lQuery = {}
@@ -180,15 +180,9 @@ QuerySet.__index = QuerySet;
 local ws = "%s" --Whitespace
 local nf = "[%w_]" --Name Fields
 
+local excl = ">"
+
 local selectors = {
-	{ --Direct Child
-		pat = "(.*)>";
-		terminate = true;
-		multi = true;
-		f = function(objs, umobjs, subsel)
-			return lQuery.selectorMatchList(subsel, objs)
-		end
-	};
 	{ --Property/value
 		pat = "%["..ws.."*("..nf.."+)"..ws.."*([|%*~!%^%$]?=)"..ws.."*['\"](.*)['\"]"..ws.."*%]";
 		f = function(obj, fld, opp, val)
@@ -285,11 +279,20 @@ local selectors = {
 		pat = "%*";
 		f = function() return true end;
 	};
+	-- { --Direct Child
+		-- pat = "(.*)>"; -- Unfortunately the (.*) in the front causes confusion when used in quotes or ()
+		-- terminate = true;
+		-- multi = true;
+		-- consume = true;
+		-- f = function(objs, umobjs, subsel)
+			-- return lQuery.selectorMatchList(subsel, objs)
+		-- end
+	-- };
 }
 
 local function selBlockMatchMulti(section, left_objs)
 	local mobjs = left_objs
-	local umobjs = {}
+	local umobjs = {} --Just used for taking the parents and trying again with them
 	for i,v in ipairs(section) do
 		if v.sel.multi then
 			mobjs = v.sel.f(mobjs, umobjs, unpack(v.args))
@@ -325,16 +328,22 @@ local function extractSelectors(sel)
 			table.insert(paths, {{}})
 			path = paths[#paths]
 			tsel = tsel:sub(2)
+		elseif (tsel:sub(1,1)==">") then
+			going = true
+			table.insert(path, ">")
+			tsel = tsel:sub(2)
 		else 
 			for sp,sd in ipairs(selectors) do
 				while true do
-					local a,b = string.find(tsel, '^'..sd.pat)
+					local a,b = string.find(tsel, '^'..sd.pat) --(sd.match and sd:match(tsel)) or 
 					if a ~= nil then
+						local part, rpart = string.sub(tsel, a,b), string.sub(tsel, b+1);
 						going = true
-						local part = string.sub(tsel, a,b);
+						
 						table.insert(path[#path], {
 							sel = sd;
-							args = {part:match(sd.pat)};
+							args = {part:match(sd.pat)}; --(sd.extract and sd:extract(part)) or
+							comsumes = consumeds;
 						})
 						tsel = string.sub(tsel, 0,a-1)..string.sub(tsel, b+1)
 					else break
@@ -361,7 +370,7 @@ end
 
 local function testSelectorsMulti(paths, objs)
 	local fmatches = {}
-	for i, path in ipairs(paths) do
+	for _, path in ipairs(paths) do
 		local pthEl = #path
 		local next_iter = {}
 		for i,v in pairs(objs) do
@@ -374,25 +383,37 @@ local function testSelectorsMulti(paths, objs)
 			next_iter = {}
 			local nmc = 0
 			
-			local matches, non_matches = {}, {}
-			repeat --Eliminate everything we can
-				matches, non_matches = selBlockMatchMulti(lsel, c_iter)
+			if lsel==">" then
+				local nst = {}
+				for i,v in ipairs(path) do
+					if i<pthEl then
+						table.insert(nst, v)
+					else break end
+				end
 			
-				for initial, cobj in pairs(matches) do --Capture items that were successfully matched and queue them for the next selector
-					if not (cobj==game or cobj.Parent==nil) then --We've reached the top of the tree and can't go further
-						next_iter[initial] = cobj.Parent
-					end
-				end
+				next_iter = testSelectorsMulti(nst, c_iter)
+				pthEl = 1
+			else
+				local matches, non_matches = {}, {}
+				repeat --Eliminate everything we can
+					matches, non_matches = selBlockMatchMulti(lsel, c_iter)
 				
-				c_iter = {}
-				nmc = 0
-				for initial, cobj in pairs(non_matches) do
-					if (not (cobj==game or cobj.Parent==nil)) and pthEl ~= #path then --We've reached the top of the tree and can't go further --Last selector must match the input obj
-						c_iter[initial] = cobj.Parent
-						nmc = nmc+1
+					for initial, cobj in pairs(matches) do --Capture items that were successfully matched and queue them for the next selector
+						if not (cobj==game or cobj.Parent==nil) then --We've reached the top of the tree and can't go further
+							next_iter[initial] = cobj.Parent
+						end
 					end
-				end
-			until nmc == 0
+					
+					c_iter = {}
+					nmc = 0
+					for initial, cobj in pairs(non_matches) do
+						if (not (cobj==game or cobj.Parent==nil)) and pthEl ~= #path then --We've reached the top of the tree and can't go further --Last selector must match the input obj
+							c_iter[initial] = cobj.Parent
+							nmc = nmc+1
+						end
+					end
+				until nmc == 0
+			end
 			
 			pthEl = pthEl-1
 			if pthEl == 0 then --We're done here.
@@ -442,6 +463,7 @@ local mt = {__call=function(self, inp, par)
 end}
 setmetatable(lQuery, mt);
 return lQuery
+
 ]]
 
 loadstring(lQuerySrc)()
