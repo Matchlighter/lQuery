@@ -1,10 +1,10 @@
 -- 2/9/2014
 
 local lQuerySrc = [[
-local lib = {}
-_G.l = lib;
+_G.lQuery = lQuery
+_G.l = _G.lQuery;
 
-lib.toArray = function (tab)
+function lQuery.toArray(tab)
 	local arr = {}
 	for n,v in pairs(tab) do
 		table.insert(arr, v)
@@ -12,15 +12,18 @@ lib.toArray = function (tab)
 	return arr
 end
 
-function lib.mergeTable(t1, t2)
-	for i,v in ipairs(t2) do
-		table.insert(t1, v)
+function lQuery.mergeTable(...)
+	local nt = {}
+	for i,v in ipairs({...}) do
+		for i2,v2 in ipairs(v) do
+			table.insert(nt, v2)
+		end
 	end
-	return t1
+	return nt
 end
 
 --Recursively gets children along a tree
-function lib.recurChilds(...)
+function lQuery.recurChilds(...)
 	local nloop = {...}
 	local found = {}
 	while #nloop>0 do
@@ -32,8 +35,20 @@ function lib.recurChilds(...)
 	end
 	return found
 end
+--Recursively gets parents along a tree
+function lQuery.recurParents(...)
+	local nloop = {...}
+	local found = {}
+	while #nloop>0 do
+		table.insert(found, nloop[1])
+		table.insert(nloop, nloop[1].Parent)
+		table.remove(nloop,1)
+	end
+	return found
+end
 
 local QuerySet = {}
+lQuery.fn = QuerySet
 function QuerySet:set(p, v)
 	for x,i in ipairs(self._items) do
 		if type(p)=="table" then
@@ -64,29 +79,33 @@ function QuerySet:select()
 	return self
 end;
 function QuerySet:remove(sel)
-	for n,v in pairs(lib.selectorMatchList(sel or "*", self._items)) do
+	for n,v in pairs(lQuery.selectorMatchList(sel or "*", self._items)) do
 		v:Remove()
 	end
 	return self
 end;
 function QuerySet:add(el)
-	table.insert(self._items, el)
-	return self
+	return self + el
 end;
 function QuerySet:count()
 	return #self._items
 end;
 function QuerySet:insert(typ, attrs)
 	local ni = type(typ)=="string" and Instance.new(typ) or typ:Clone()
-	lib(ni):set(attrs)
+	lQuery(ni):set(attrs)
 	for x,i in ipairs(self._items) do
 		ni:Clone().Parent = i
 	end
 	return self
 end;
 function QuerySet:__add(oth)
-	for i,v in ipairs(oth) do
-		table.insert(self._items, v)
+	if type(oth)=="table" then
+		if getmetatable(oth)==QuerySet then
+			oth = oth._items
+		end
+		return lQuery(lQuery.mergeTable(self._items, oth))
+	elseif type(oth)=="userdata" then
+		return lQuery(lQuery.mergeTable(self._items, {oth}))
 	end
 end;
 function QuerySet:__call() --Shortcut for :select()
@@ -102,19 +121,19 @@ end;
 	function QuerySet:children(sel) --Get the children of each element in the set of matched elements, optionally filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
-			lib.mergeTable(nq, inst:GetChildren())
+			lQuery.mergeTable(nq, inst:GetChildren())
 		end)
 		if sel ~= nil then
-			nq = lib.selectorMatchList(sel, nq)
+			nq = lQuery.selectorMatchList(sel, nq)
 		end
-		return lib(nq)
+		return lQuery(nq)
 	end;
 	function QuerySet:find(sel) --Get the descendants of each element in the current set of matched elements, filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
-			lib.mergeTable(nq, execSelector(sel, inst))
+			lQuery.mergeTable(nq, execSelector(sel, inst))
 		end)
-		return lib(nq)
+		return lQuery(nq)
 	end;
 	function QuerySet:filter(sel) --Reduce the set of matched elements to those that match the selector or pass the function’s test.
 		local nq={}
@@ -125,9 +144,9 @@ end;
 				end
 			end)
 		else
-			nq = lib.selectorMatchList(sel, self._items)
+			nq = lQuery.selectorMatchList(sel, self._items)
 		end
-		return lib(nq)
+		return lQuery(nq)
 	end;
 	function QuerySet:parent(sel) --Get the parent of each element in the current set of matched elements, optionally filtered by a selector.
 		local nq = {}
@@ -135,9 +154,9 @@ end;
 			table.insert(nq, inst.Parent)
 		end)
 		if sel ~= nil then
-			nq = lib.selectorMatchList(sel, nq)
+			nq = lQuery.selectorMatchList(sel, nq)
 		end
-		return lib(nq)
+		return lQuery(nq)
 	end
 	function QuerySet:siblings(sel) --Get the siblings of each element in the set of matched elements, optionally filtered by a selector. (Does not include the original child)
 		local nq = {}
@@ -152,23 +171,11 @@ end;
 			end
 		end)
 		if sel ~= nil then
-			nq = lib.selectorMatchList(sel, nq)
+			nq = lQuery.selectorMatchList(sel, nq)
 		end
-		return lib(nq)
+		return lQuery(nq)
 	end;
 QuerySet.__index = QuerySet;
-
---Recursively gets parents along a tree
-local function recurParents(chld)
-	local nloop = {chld}
-	local found = {}
-	while #nloop>0 do
-		table.insert(found, nloop[1])
-		table.insert(nloop, nloop[1].Parent)
-		table.remove(nloop,1)
-	end
-	return found
-end
 
 local ws = "%s" --Whitespace
 local nf = "[%w_]" --Name Fields
@@ -179,7 +186,7 @@ local selectors = {
 		terminate = true;
 		multi = true;
 		f = function(objs, umobjs, subsel)
-			return lib.selectorMatchList(subsel, objs)
+			return lQuery.selectorMatchList(subsel, objs)
 		end
 	};
 	{ --Property/value
@@ -216,7 +223,7 @@ local selectors = {
 		pat = ":has(%b())";
 		f = function(obj, subsel)
 			local nsel = subsel:sub(2,-2)
-			return #lib.toArray(lib.selectorMatchList(nsel, lib.recurChilds(unpack(obj:GetChildren())))) > 0
+			return #lQuery.toArray(lQuery.selectorMatchList(nsel, lQuery.recurChilds(unpack(obj:GetChildren())))) > 0
 		end;
 	};
 	{ --Selects all elements that do NOT match the given selector
@@ -224,7 +231,7 @@ local selectors = {
 		multi = true;
 		f = function(objs, umobjs, subsel)
 			local nsel = subsel:sub(2,-2)
-			for n,v in pairs(lib.selectorMatchList(nsel, objs)) do
+			for n,v in pairs(lQuery.selectorMatchList(nsel, objs)) do
 				objs[n] = nil
 				umobjs[n] = v
 			end
@@ -399,24 +406,20 @@ local function testSelectorsMulti(paths, objs)
 	return fmatches
 end
 
-lib.selectorMatch = function (sel, obj)
-	return lib.selectorMatchList(paths, {obj})
+lQuery.selectorMatch = function (sel, obj)
+	return #lQuery.selectorMatchList(paths, {obj})>0
 end
 
-lib.selectorMatchList = function (sel, objs)
+lQuery.selectorMatchList = function (sel, objs)
 	local ft = {}
 	local paths = extractSelectors(sel)
 	return testSelectorsMulti(paths, objs)
 end
 
 local function execSelector(sel, par)
-	par = par or game
-	local tree = lib.recurChilds(par)
-	local tbl, tbl2 = lib.selectorMatchList(sel, tree), {}
-	for n, v in pairs(tbl) do
-		table.insert(tbl2, v)
-	end
-	return tbl2
+	local tree = lQuery.recurChilds(par)
+	local tbl = lQuery.selectorMatchList(sel, tree)
+	return lQuery.toArray(tbl)
 end
 
 local mt = {__call=function(self, inp, par)
@@ -437,8 +440,8 @@ local mt = {__call=function(self, inp, par)
 	setmetatable(qo, QuerySet)
 	return qo
 end}
-setmetatable(lib, mt);
-return lib
+setmetatable(lQuery, mt);
+return lQuery
 
 ]]
 
