@@ -1,6 +1,6 @@
 local lQuery = {}
 _G.lQuery = lQuery
-_G.l = _G.lQuery;
+_G.l = _G.lQuery
 
 function lQuery.toArray(tab)
 	local arr = {}
