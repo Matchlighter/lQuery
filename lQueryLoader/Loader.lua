@@ -1,4 +1,4 @@
--- 2/10/2014
+-- 2/11/2014
 
 local lQuerySrc = [[
 local lQuery = {}
@@ -390,8 +390,8 @@ local function testSelectorsMulti(paths, objs)
 						table.insert(nst, v)
 					else break end
 				end
-			
-				next_iter = testSelectorsMulti(nst, c_iter)
+
+				next_iter = testSelectorsMulti({nst}, c_iter)
 				pthEl = 1
 			else
 				local matches, non_matches = {}, {}
