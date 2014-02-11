@@ -10,8 +10,7 @@ function lQuery.toArray(tab)
 	return arr
 end
 
-function lQuery.mergeTable(...)
-	local nt = {}
+function lQuery.mergeTable(nt, ...)
 	for i,v in ipairs({...}) do
 		for i2,v2 in ipairs(v) do
 			table.insert(nt, v2)
@@ -101,9 +100,9 @@ function QuerySet:__add(oth)
 		if getmetatable(oth)==QuerySet then
 			oth = oth._items
 		end
-		return lQuery(lQuery.mergeTable(self._items, oth))
+		return lQuery(lQuery.mergeTable({}, self._items, oth))
 	elseif type(oth)=="userdata" then
-		return lQuery(lQuery.mergeTable(self._items, {oth}))
+		return lQuery(lQuery.mergeTable({}, self._items, {oth}))
 	end
 end;
 function QuerySet:__call() --Shortcut for :select()
