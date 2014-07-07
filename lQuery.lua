@@ -128,7 +128,7 @@ end;
 	function QuerySet:find(sel) --Get the descendants of each element in the current set of matched elements, filtered by a selector.
 		local nq = {}
 		self:each(function(inst)
-			lQuery.mergeTable(nq, execSelector(sel, inst))
+			lQuery.mergeTable(nq, lQuery.execSelector(sel, inst))
 		end)
 		return lQuery(nq)
 	end;
@@ -434,7 +434,7 @@ lQuery.selectorMatchList = function (sel, objs)
 	return testSelectorsMulti(paths, objs)
 end
 
-local function execSelector(sel, par)
+lQuery.execSelector = function (sel, par)
 	local tree = lQuery.recurChilds(par)
 	local tbl = lQuery.selectorMatchList(sel, tree)
 	return lQuery.toArray(tbl)
@@ -447,7 +447,7 @@ local mt = {__call=function(self, inp, par)
 	if inp==nil then
 		qo._items = game.Selection:Get()
 	elseif type(inp) == "string" then
-		qo._items = execSelector(inp, par)
+		qo._items = lQuery.execSelector(inp, par)
 	elseif type(inp) == "userdata" then
 		qo._items = {inp}
 	elseif type(inp) == "table" then
